@@ -254,4 +254,90 @@ struct CombineAsyncSequenceView: View {
     }
 }
 
-PlaygroundPage.current.setLiveView(CombineAsyncSequenceView())
+//PlaygroundPage.current.setLiveView(CombineAsyncSequenceView())
+
+//MARK: - Custom Async Sequences with AsyncStream
+func demoAsyncStream(text: String) -> AsyncStream<String> {
+    //init(unfolding:onCancel:): Creates a new stream that produces values by returning them from the unfolding closure. It optionally executes an onCancel closure when it’s canceled.
+    var phrase = text
+    var index = phrase.startIndex
+    return AsyncStream<String> {
+        guard index < phrase.endIndex else { return nil }
+        do {
+            try await Task.sleep(seconds: 0.5)
+        } catch {
+            return nil
+        }
+        
+        defer { index = phrase.index(after: index) }
+        return String(phrase[phrase.startIndex...index])
+        /*
+            Your unfolding closure will be called every time you’re expected to begin producing a value for your stream. In practice this means that your closure will be called, you perform some work, you return a value and then your closure is called. This repeats until the for loop is cancelled, the task that contains your async for loop is cancelled, or until you return nil from your unfolding closure.
+             
+             The AsyncStream(unfolding:) way to produce a stream of values is quite convenient but it’s particularly useful in situations where:
+             - You want to perform async work that needs to be awaited to produce elements
+             - You have a need to handle back pressure when bridging an API you own
+         */
+        
+    }
+}
+////
+//Task {
+//    for await item in demoAsyncStream(text: "Hello form async stream!") {
+//        print(item)
+//    }
+//}
+
+// Producing an async stream with continuation
+func demoTimerAsyncStreamContinuation(duration: Int) -> AsyncStream<String> {
+    var countdown = duration
+    return AsyncStream { continuation in
+        DispatchQueue.main.async {
+            Timer.scheduledTimer(
+                withTimeInterval: 1.0,
+                repeats: true
+            ) { timer in
+                guard countdown > 0 else {
+                    timer.invalidate()
+                    continuation.yield(with: .success("🎉 Finish"))
+                    continuation.finish()
+                    return
+                }
+                continuation.yield("\(countdown)....")
+                countdown -= 1
+            }
+        }
+    }
+}
+/*
+     With a continuation you have the ability to construct an async stream object and send values over the async stream whenever values become available.
+     
+     If we’re building an AsyncSTream that wraps a delegate based API, we can hold on to our continuation in the delegate object and call yield whenever a relevant delegate method is called.
+     
+     For example, we could call continuation.yield from within a CLLocationManagerDelegate whenever a new user location is made available to us:
+ 
+         class AsyncLocationStream: NSObject, CLLocationManagerDelegate {
+             lazy var stream: AsyncStream<CLLocation> = {
+                 AsyncStream { (continuation: AsyncStream<CLLocation>.Continuation) -> Void in
+                     self.continuation = continuation
+                 }
+             }()
+             var continuation: AsyncStream<CLLocation>.Continuation?
+
+             func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+
+                 for location in locations {
+                     continuation?.yield(location)
+                 }
+             }
+         }
+ 
+    read more: https://www.donnywals.com/understanding-swift-concurrencys-asyncstream/
+ */
+
+Task {
+    for await value in demoTimerAsyncStreamContinuation(duration: 3) {
+        print(value)
+    }
+    print("Yay!")
+}
